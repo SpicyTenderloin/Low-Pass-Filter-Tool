@@ -216,3 +216,10 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- Project-specific ---
+# Generated design output (JSON/PNG/report) from running main.py / load_filter.py / monte_carlo.py
+/filter designs/
+
+# Pre-rewrite snapshot of the original codebase, kept locally only
+/_original_backup/
