@@ -223,3 +223,6 @@ __marimo__/
 
 # Pre-rewrite snapshot of the original codebase, kept locally only
 /_original_backup/
+
+# Remembered values from your last interactive run (per-machine, not shared)
+/.last_run.json
