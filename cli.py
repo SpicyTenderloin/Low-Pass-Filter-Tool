@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Optional
 
 import parameters as P
+from prototype_filter import compute_min_order
 
 STATE_PATH = Path(".last_run.json")
 
@@ -53,6 +54,7 @@ class DesignSpec:
     gpass_db: float                # passband ripple / max passband loss
     gstop_db: float                 # minimum stopband attenuation
     target_gain_db: float = 0.0     # desired overall passband gain
+    order_override: Optional[int] = None  # None = automatic minimum order
     e_series: int = 24
     retune_enabled: bool = True
     retune_margin_db: float = 0.5
@@ -154,6 +156,18 @@ def get_spec_interactive() -> DesignSpec:
     gstop = _ask_float_maybe_default("Minimum stopband attenuation (dB)", last.get('gstop_db'),
                                       lambda v: v > gpass, hint="must exceed the passband figure")
 
+    n_min = compute_min_order(filter_type, wp, ws, gpass, gstop)
+    print(f"\nAutomatic minimum order for this spec: N={n_min} (sits exactly on the\n"
+          f"  ripple/attenuation boundary, with no headroom once realised in parts).")
+    order_in = int(_ask_float(
+        "Filter order -- raising this only helps if pole retuning is also\n"
+        "  enabled below: extra order lets retuning spread the required\n"
+        "  selectivity across more, gentler stages, lowering the Q each one\n"
+        "  needs. Raising it WITHOUT retuning makes every stage's Q worse,\n"
+        "  not better -- it just demands a steeper transition for no reason.",
+        n_min, lambda v: v >= n_min, hint=f"must be >= the automatic minimum ({n_min})"))
+    order_override = order_in if order_in > n_min else None
+
     print("\n--- A few other parameters that affect the build ---")
     target_gain = _ask_float(
         "Target overall passband gain (dB) -- each Sallen-Key stage needs\n"
@@ -186,7 +200,7 @@ def get_spec_interactive() -> DesignSpec:
     spec = DesignSpec(
         name=P.FILTER_DESIGNER_NAME, filter_type=filter_type,
         wp_hz=wp, ws_hz=ws, gpass_db=gpass, gstop_db=gstop,
-        target_gain_db=target_gain, e_series=e_series,
+        target_gain_db=target_gain, order_override=order_override, e_series=e_series,
         retune_enabled=retune, retune_margin_db=retune_margin,
         show_plots=show_plots, out_name=out_name,
     )

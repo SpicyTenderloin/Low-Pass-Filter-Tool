@@ -7,7 +7,7 @@ from scipy.signal import freqs
 
 import cli
 import parameters as P
-from prototype_filter import generate_prototype
+from prototype_filter import generate_prototype, compute_min_order
 from sallen_key_tf import build_lpf_sections_from_poles, compute_cascade_tf, compute_ideal_cascade_tf
 from sk_realisation import pick_sk_parts_for_biquad, pick_sk_parts_for_first_order, pick_attenuator
 from stagger_tuning import retune_poles
@@ -94,8 +94,13 @@ def run(spec=None):
     r_lib, c_lib = P.build_libraries(spec.e_series)
 
     b, a, N, Wn = generate_prototype(spec.filter_type, spec.wp_hz, spec.ws_hz,
-                                      spec.gpass_db, spec.gstop_db)
-    log(f"Order: {N}  Prototype edge: {Wn / (2 * np.pi):.2f} Hz")
+                                      spec.gpass_db, spec.gstop_db, order=spec.order_override)
+    if spec.order_override:
+        n_min = compute_min_order(spec.filter_type, spec.wp_hz, spec.ws_hz, spec.gpass_db, spec.gstop_db)
+        log(f"Order: {N} (manual override -- automatic minimum was {n_min})  "
+            f"Prototype edge: {Wn / (2 * np.pi):.2f} Hz")
+    else:
+        log(f"Order: {N} (automatic minimum)  Prototype edge: {Wn / (2 * np.pi):.2f} Hz")
     log("Ideal transfer function:")
     log(f"b = {b}")
     log(f"a = {a}")
@@ -191,6 +196,7 @@ def run(spec=None):
         "name": spec.name,
         "type": spec.filter_type,
         "order": int(N),
+        "order_override": spec.order_override,
         "wp_hz": spec.wp_hz,
         "ws_hz": spec.ws_hz,
         "ripple_db": spec.gpass_db,
