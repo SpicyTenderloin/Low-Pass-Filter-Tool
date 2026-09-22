@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from bom import print_bom
-from plotting import plot_bode, mark_spec, show_and_save
+from plotting import plot_bode, mark_spec, show_and_save, block_until_closed
 from sallen_key_tf import compute_cascade_tf
 
 
@@ -54,6 +54,7 @@ def main():
     mark_spec(axes, data['wp_hz'], data['ws_hz'], data['ripple_db'], data['atten_db'])
     show_and_save(fig, filters[choice].with_suffix('.png'), show=show)
     print(f"[OK] Plot saved to {filters[choice].with_suffix('.png')}")
+    block_until_closed()
 
 
 if __name__ == "__main__":

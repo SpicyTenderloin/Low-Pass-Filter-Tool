@@ -14,7 +14,8 @@ from stagger_tuning import retune_poles
 from monte_carlo import run_monte_carlo, summarize_monte_carlo
 from report import log, write_report
 from bom import print_bom
-from plotting import plot_bode, mark_spec, plot_monte_carlo, show_and_save
+from plotting import (plot_bode, mark_spec, plot_passband_detail, mark_passband_spec,
+                       plot_monte_carlo, show_fig, save_fig, block_until_closed)
 
 
 def save_filter_json(design_data, out_dir="filter designs", filename=None):
@@ -52,21 +53,36 @@ def realise_sections(sections, r_lib, c_lib):
 
 def verify_response(b, a, wp_hz, ws_hz, gpass_db, gstop_db):
     """Check a realised cascade's actual passband ripple and stopband
-    attenuation against the spec."""
-    f_pass = np.linspace(1.0, wp_hz, 400)
-    f_stop = np.geomspace(ws_hz, 20 * ws_hz, 200)
+    attenuation against the spec, and report exactly where it fails.
+
+    Ripple is measured as the true peak-to-peak deviation across the whole
+    passband (its highest point minus its lowest), not deviation from an
+    arbitrary single reference frequency -- a filter can rise above its own
+    low-frequency level just as easily as it can dip below it, and both
+    count against the ripple budget. Attenuation is then measured relative
+    to that same passband peak, since that peak is the worst-case level a
+    signal in the passband can actually reach.
+    """
+    f_pass = np.linspace(1.0, wp_hz, 2000)
+    f_stop = np.geomspace(ws_hz, 20 * ws_hz, 400)
     _, Hp = freqs(b, a, 2 * np.pi * f_pass)
     _, Hs = freqs(b, a, 2 * np.pi * f_stop)
     mag_p = 20 * np.log10(np.maximum(np.abs(Hp), 1e-30))
     mag_s = 20 * np.log10(np.maximum(np.abs(Hs), 1e-30))
-    ref = mag_p[0]
-    ripple_achieved = ref - mag_p.min()
-    atten_achieved = ref - mag_s.max()
+
+    i_peak, i_dip = int(np.argmax(mag_p)), int(np.argmin(mag_p))
+    i_leak = int(np.argmax(mag_s))
+    ripple_achieved = mag_p[i_peak] - mag_p[i_dip]
+    atten_achieved = mag_p[i_peak] - mag_s[i_leak]
+
     return {
         'ripple_db_achieved': float(ripple_achieved),
         'ripple_ok': bool(ripple_achieved <= gpass_db + 1e-6),
+        'ripple_peak_db': float(mag_p[i_peak]), 'ripple_peak_hz': float(f_pass[i_peak]),
+        'ripple_dip_db': float(mag_p[i_dip]), 'ripple_dip_hz': float(f_pass[i_dip]),
         'atten_db_achieved': float(atten_achieved),
         'atten_ok': bool(atten_achieved >= gstop_db - 1e-6),
+        'atten_worst_db': float(mag_s[i_leak]), 'atten_worst_hz': float(f_stop[i_leak]),
     }
 
 
@@ -131,13 +147,25 @@ def run(spec=None):
     real_b, real_a = compute_cascade_tf(realised)
     check = verify_response(real_b, real_a, spec.wp_hz, spec.ws_hz, spec.gpass_db, spec.gstop_db)
     log("\n===== Verification against spec =====")
-    log(f"  Passband ripple : {check['ripple_db_achieved']:.2f} dB "
-        f"(spec <= {spec.gpass_db:.2f} dB)  {'OK' if check['ripple_ok'] else 'FAIL'}")
-    log(f"  Stopband atten. : {check['atten_db_achieved']:.2f} dB "
-        f"(spec >= {spec.gstop_db:.2f} dB)  {'OK' if check['atten_ok'] else 'FAIL'}")
+    r_tag = "OK" if check['ripple_ok'] else "FAIL"
+    log(f"  [{r_tag}] Passband ripple : {check['ripple_db_achieved']:.2f} dB peak-to-peak "
+        f"(spec <= {spec.gpass_db:.2f} dB)")
+    log(f"          peak {check['ripple_peak_db']:+.2f} dB @ {check['ripple_peak_hz']:.1f} Hz   "
+        f"dip {check['ripple_dip_db']:+.2f} dB @ {check['ripple_dip_hz']:.1f} Hz")
+    a_tag = "OK" if check['atten_ok'] else "FAIL"
+    log(f"  [{a_tag}] Stopband atten. : {check['atten_db_achieved']:.2f} dB "
+        f"(spec >= {spec.gstop_db:.2f} dB)")
+    log(f"          weakest point {check['atten_worst_db']:+.2f} dB @ {check['atten_worst_hz']:.1f} Hz")
     if not (check['ripple_ok'] and check['atten_ok']):
-        log("  [!] The realised design does not meet the spec with the parts available. "
-            "Try a larger E-series, a bigger retune margin, or a looser spec.")
+        failed = [name for name, ok in (("passband ripple", check['ripple_ok']),
+                                         ("stopband attenuation", check['atten_ok'])) if not ok]
+        log(f"  [!] Failed: {', '.join(failed)}. The realised design does not meet the spec "
+            "with the parts available. Try a larger E-series, a bigger retune margin, or a "
+            "looser spec.")
+
+    base = spec.out_name or time.strftime("filter_%Y%m%d-%H%M%S")
+    out_dir = Path("filter designs")
+    pending_plots = []  # (fig, filename) -- only written to disk if the user opts to save
 
     f_max_plot = max(spec.ws_hz * 3, P.F_MAX)
     fig, axes = plot_bode(b, a, label="Ideal", color=P.COLORS['ideal'], f_max=f_max_plot)
@@ -146,13 +174,18 @@ def run(spec=None):
                    axes=axes, f_max=f_max_plot)
     plot_bode(real_b, real_a, label="Realised", color=P.COLORS['realised'], axes=axes, f_max=f_max_plot)
     mark_spec(axes, spec.wp_hz, spec.ws_hz, spec.gpass_db, spec.gstop_db)
+    show_fig(fig, show=spec.show_plots)
+    pending_plots.append((fig, f"{base}_bode.png"))
 
-    out_dir = Path("filter designs")
-    out_dir.mkdir(exist_ok=True)
-    base = spec.out_name or time.strftime("filter_%Y%m%d-%H%M%S")
-    plot_path = out_dir / f"{base}_bode.png"
-    show_and_save(fig, plot_path, show=spec.show_plots)
-    log(f"[OK] Plot saved to {plot_path}")
+    pb_fig, pb_ax = plot_passband_detail(b, a, spec.wp_hz, label="Ideal", color=P.COLORS['ideal'])
+    if retune_info and retune_info.get('changed'):
+        plot_passband_detail(retuned_b, retuned_a, spec.wp_hz, label="Retuned target",
+                              color=P.COLORS['retuned'], ax=pb_ax)
+    plot_passband_detail(real_b, real_a, spec.wp_hz, label="Realised", color=P.COLORS['realised'], ax=pb_ax)
+    mark_passband_spec(pb_ax, spec.gpass_db, ref_db=check['ripple_peak_db'])
+    pb_ax.set_title("Passband detail (zoomed)")
+    show_fig(pb_fig, show=spec.show_plots)
+    pending_plots.append((pb_fig, f"{base}_passband.png"))
 
     filter_data = {
         "name": spec.name,
@@ -177,9 +210,8 @@ def run(spec=None):
         summarize_monte_carlo(result, spec.gpass_db, spec.gstop_db)
 
         mc_fig, mc_ax = plot_monte_carlo(result, spec.wp_hz, spec.ws_hz, spec.gpass_db, spec.gstop_db)
-        mc_path = out_dir / f"{base}_montecarlo.png"
-        show_and_save(mc_fig, mc_path, show=spec.show_plots)
-        log(f"[OK] Monte Carlo plot saved to {mc_path}")
+        show_fig(mc_fig, show=spec.show_plots)
+        pending_plots.append((mc_fig, f"{base}_montecarlo.png"))
 
         rp = np.percentile(result['ripple_db'], [5, 50, 95]).tolist() if len(result['ripple_db']) else None
         ap = np.percentile(result['atten_db'], [5, 50, 95]).tolist() if len(result['atten_db']) else None
@@ -190,8 +222,17 @@ def run(spec=None):
             "ripple_db_p5_p50_p95": rp, "atten_db_p5_p50_p95": ap,
         }
 
-    save_filter_json(filter_data, filename=f"{base}.json")
-    write_report()
+    if cli.ask_save_design():
+        out_dir.mkdir(exist_ok=True)
+        for fig_, filename in pending_plots:
+            save_fig(fig_, out_dir / filename)
+            log(f"[OK] Plot saved to {out_dir / filename}")
+        save_filter_json(filter_data, filename=f"{base}.json")
+        write_report()
+    else:
+        log("\n[i] Design not saved (nothing written to \"filter designs/\").")
+
+    block_until_closed()
     return filter_data
 
 

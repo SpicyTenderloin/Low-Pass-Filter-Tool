@@ -1,6 +1,8 @@
 """Interactive collection of a filter design specification.
 
-Every prompt shows its default in [brackets]; pressing Enter accepts it.
+Most prompts show a default in [brackets]; pressing Enter accepts it. The
+core spec values (passband/stopband edges, ripple, attenuation) have no
+default -- they must be typed in every run.
 """
 from dataclasses import dataclass
 from typing import Optional
@@ -50,6 +52,23 @@ def _ask_float(prompt, default, validate=None, hint=None):
         return value
 
 
+def _ask_float_required(prompt, validate=None, hint=None):
+    while True:
+        raw = input(f"{prompt}: ").strip()
+        if raw == "":
+            print("  This value is required, please enter a number.")
+            continue
+        try:
+            value = float(raw)
+        except ValueError:
+            print("  Please enter a number.")
+            continue
+        if validate and not validate(value):
+            print(f"  Out of range{': ' + hint if hint else ''}, try again.")
+            continue
+        return value
+
+
 def _ask_choice(prompt, choices, default):
     choices_l = [c.lower() for c in choices]
     while True:
@@ -76,20 +95,21 @@ def _ask_yesno(prompt, default):
 
 def get_spec_interactive() -> DesignSpec:
     print(f"=== {P.FILTER_DESIGNER_NAME}: interactive design spec ===")
-    print("(Press Enter on any prompt to accept the default shown.)\n")
+    print("(The spec below must be entered each run. Later prompts show a\n"
+          " default in [brackets] -- press Enter to accept it.)\n")
 
     filter_type = _ask_choice("Filter type", ["chebyshev", "butterworth"], P.DEFAULT_FILTER_TYPE)
 
-    wp = _ask_float("Passband edge frequency (Hz)", P.DEFAULT_WP_HZ, lambda v: v > 0)
-    ws = _ask_float("Stopband edge frequency (Hz)", P.DEFAULT_WS_HZ, lambda v: v > wp,
-                     hint="must be above the passband edge")
+    wp = _ask_float_required("Passband edge frequency (Hz)", lambda v: v > 0)
+    ws = _ask_float_required("Stopband edge frequency (Hz)", lambda v: v > wp,
+                              hint="must be above the passband edge")
 
     if filter_type == "chebyshev":
-        gpass = _ask_float("Passband ripple (dB)", P.DEFAULT_GPASS_DB, lambda v: v > 0)
+        gpass = _ask_float_required("Passband ripple (dB)", lambda v: v > 0)
     else:
-        gpass = _ask_float("Max passband loss at the edge (dB)", P.DEFAULT_GPASS_DB, lambda v: v > 0)
-    gstop = _ask_float("Minimum stopband attenuation (dB)", P.DEFAULT_GSTOP_DB,
-                        lambda v: v > gpass, hint="must exceed the passband figure")
+        gpass = _ask_float_required("Max passband loss at the edge (dB)", lambda v: v > 0)
+    gstop = _ask_float_required("Minimum stopband attenuation (dB)",
+                                 lambda v: v > gpass, hint="must exceed the passband figure")
 
     print("\n--- A few other parameters that affect the build ---")
     target_gain = _ask_float(
@@ -130,6 +150,10 @@ def get_spec_interactive() -> DesignSpec:
 
 def ask_run_monte_carlo(default=False) -> bool:
     return _ask_yesno("\nRun a Monte Carlo component-tolerance analysis on this design now?", default)
+
+
+def ask_save_design(default=True) -> bool:
+    return _ask_yesno('\nSave this design (JSON, plots, and report) to "filter designs/"?', default)
 
 
 def get_monte_carlo_params_interactive() -> MonteCarloParams:

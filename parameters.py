@@ -4,13 +4,11 @@ import numpy as np
 FILTER_DESIGNER_NAME = "Filter Designer"
 
 # --- Suggested defaults shown in the interactive prompts (cli.py) ---
-# These are NOT the spec any more -- the spec is collected interactively
-# every run. They only pre-fill the prompts so testing/re-running is fast.
+# The spec itself (passband/stopband edges, ripple, attenuation) has no
+# default and must be typed in every run, so a spec is never accepted by
+# accident on autopilot Enter presses. These remaining defaults are for
+# the build options, where a default is genuinely convenient.
 DEFAULT_FILTER_TYPE   = "chebyshev"   # "chebyshev" or "butterworth"
-DEFAULT_WP_HZ          = 4300.0
-DEFAULT_WS_HZ          = 6000.0
-DEFAULT_GPASS_DB       = 2.0
-DEFAULT_GSTOP_DB       = 50.0
 DEFAULT_TARGET_GAIN_DB = 0.0
 DEFAULT_E_SERIES       = 24
 DEFAULT_RETUNE_ENABLED = True

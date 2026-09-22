@@ -47,6 +47,46 @@ def mark_spec(axes, wp_hz, ws_hz, gpass_db, gstop_db):
     return ax1.figure, (ax1, ax2)
 
 
+def plot_passband_detail(b, a, wp_hz, label="TF", color="tab:blue", ax=None, f_min=None, n=2000):
+    """Zoomed, auto-scaled magnitude-only view of just the passband.
+
+    A full Bode plot's y-axis usually spans 100+ dB to fit the stopband
+    rolloff, which hides a sub-dB or few-dB ripple failure completely --
+    the trace just looks like a flat line. This plots magnitude only, over
+    [f_min, wp_hz], and lets matplotlib autoscale the y-axis to the data so
+    the actual ripple shape is visible.
+    """
+    f_min = f_min or max(0.1, wp_hz / 20000)
+    f = np.linspace(f_min, wp_hz, n)
+    w = 2 * np.pi * f
+    _, H = freqs(b, a, w)
+    mag = 20 * np.log10(np.maximum(np.abs(H), 1e-12))
+
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(8, 4))
+        ax.set_xlabel("Frequency [Hz]")
+        ax.set_ylabel("Magnitude [dB]")
+        ax.grid(True, which='both', linestyle=':')
+    else:
+        fig = ax.figure
+
+    ax.semilogx(f, mag, label=label, color=color)
+    ax.legend()
+    return fig, ax
+
+
+def mark_passband_spec(ax, gpass_db, ref_db=0.0):
+    """Draw the ripple budget on a passband-detail plot. Pass the realised
+    curve's own peak level as ref_db (verify_response()'s ripple_peak_db)
+    so the line reflects the actual reference the ripple is judged against,
+    not an assumed 0 dB."""
+    ax.axhline(ref_db, color='grey', linestyle='-', linewidth=0.6)
+    ax.axhline(ref_db - gpass_db, color='red', linestyle=':', linewidth=1.2,
+               label=f'-{gpass_db:.2f} dB spec')
+    ax.legend()
+    return ax.figure, ax
+
+
 def plot_monte_carlo(result, wp_hz, ws_hz, gpass_db, gstop_db):
     """Overlay every Monte Carlo trial's magnitude response (thin, semi-
     transparent) with the nominal response highlighted, plus the spec mask."""
@@ -73,13 +113,51 @@ def plot_monte_carlo(result, wp_hz, ws_hz, gpass_db, gstop_db):
     return fig, ax
 
 
-def show_and_save(fig, path, show=False):
-    """Always save the figure to disk; only open an interactive window if
-    `show` is True (and only if a display is actually available)."""
+_any_shown = False
+
+
+def show_fig(fig, show=False):
+    """Display a figure without blocking script execution, if `show` is
+    True and a display is available (a no-op otherwise, e.g. headless/SSH).
+    plt.show() with no arguments blocks until the window is closed, which
+    is why several plots in a row would each stall the script -- this uses
+    block=False plus a short pause to force the window to actually render
+    without waiting. Call block_until_closed() once, at the very end of the
+    script, to keep every window shown this way open until the user closes
+    them -- otherwise they vanish the instant the process exits."""
+    global _any_shown
+    if not show:
+        return
+    try:
+        fig.tight_layout()
+        plt.show(block=False)
+        plt.pause(0.1)
+        _any_shown = True
+    except Exception:
+        pass
+
+
+def save_fig(fig, path):
+    """Save a figure to disk."""
     fig.tight_layout()
     fig.savefig(path, dpi=150)
-    if show:
+
+
+def block_until_closed():
+    """Block until every window opened via show_fig() (in this process) is
+    closed. No-op if nothing was shown. Call once, right at the end of a
+    script, after every plot for the run has already been created."""
+    global _any_shown
+    if _any_shown:
         try:
             plt.show()
         except Exception:
-            pass  # no display available (e.g. headless/SSH session)
+            pass
+        _any_shown = False
+
+
+def show_and_save(fig, path, show=False):
+    """Save a figure to disk, and optionally display it (non-blocking --
+    call block_until_closed() at the end of the script to keep it open)."""
+    save_fig(fig, path)
+    show_fig(fig, show=show)

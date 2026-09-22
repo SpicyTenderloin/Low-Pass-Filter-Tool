@@ -103,7 +103,10 @@ def run_monte_carlo(stages, wp_hz, ws_hz, gpass_db, gstop_db, r_tol_pct, c_tol_p
         _, H = freqs(num, den, w)
         m = 20 * np.log10(np.maximum(np.abs(H), 1e-30))
         mag[i] = m
-        ref = m[pass_mask][0] if pass_mask.any() else m[0]
+        # Ripple = true peak-to-peak passband deviation; attenuation is
+        # measured relative to the passband's own peak (its worst-case
+        # level), matching verify_response() in main.py.
+        ref = m[pass_mask].max() if pass_mask.any() else m[0]
         ripple = (ref - m[pass_mask].min()) if pass_mask.any() else np.nan
         atten = (ref - m[stop_mask].max()) if stop_mask.any() else np.nan
         ripple_list.append(ripple)
@@ -154,7 +157,7 @@ def _standalone():
     design."""
     import load_filter as lf
     import cli
-    from plotting import plot_monte_carlo, show_and_save
+    from plotting import plot_monte_carlo, show_and_save, block_until_closed
 
     filters = lf.list_saved_filters()
     if not filters:
@@ -196,6 +199,7 @@ def _standalone():
                 if len(result['atten_db']) else None,
         }, f, indent=4)
     print(f"[OK] Monte Carlo stats saved to {results_path}")
+    block_until_closed()
 
 
 if __name__ == "__main__":
