@@ -162,7 +162,7 @@ with st.expander("Passband detail (zoomed) -- ripple failures are often invisibl
         plot_passband_detail(d['retuned_b'], d['retuned_a'], wp_hz, label="Retuned target",
                               color=P.COLORS['retuned'], ax=ax1b)
     plot_passband_detail(d['real_b'], d['real_a'], wp_hz, label="Realised", color=P.COLORS['realised'], ax=ax1b)
-    mark_passband_spec(ax1b, gpass_db, ref_db=check['ripple_peak_db'])
+    mark_passband_spec(ax1b, gpass_db)
     st.pyplot(fig1b)
     plt.close(fig1b)
 

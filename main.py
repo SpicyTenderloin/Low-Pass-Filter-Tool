@@ -104,7 +104,7 @@ def run(spec=None):
         plot_passband_detail(d['retuned_b'], d['retuned_a'], spec.wp_hz, label="Retuned target",
                               color=P.COLORS['retuned'], ax=pb_ax)
     plot_passband_detail(d['real_b'], d['real_a'], spec.wp_hz, label="Realised", color=P.COLORS['realised'], ax=pb_ax)
-    mark_passband_spec(pb_ax, spec.gpass_db, ref_db=check['ripple_peak_db'])
+    mark_passband_spec(pb_ax, spec.gpass_db)
     pb_ax.set_title("Passband detail (zoomed)")
     show_fig(pb_fig, show=spec.show_plots)
     pending_plots.append((pb_fig, f"{base}_passband.png"))

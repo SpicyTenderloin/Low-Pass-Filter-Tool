@@ -47,7 +47,8 @@ def mark_spec(axes, wp_hz, ws_hz, gpass_db, gstop_db):
     return ax1.figure, (ax1, ax2)
 
 
-def plot_passband_detail(b, a, wp_hz, label="TF", color="tab:blue", ax=None, f_min=None, n=2000):
+def plot_passband_detail(b, a, wp_hz, label="TF", color="tab:blue", ax=None, f_min=None, n=2000,
+                          normalize=True):
     """Zoomed, auto-scaled magnitude-only view of just the passband.
 
     A full Bode plot's y-axis usually spans 100+ dB to fit the stopband
@@ -55,17 +56,34 @@ def plot_passband_detail(b, a, wp_hz, label="TF", color="tab:blue", ax=None, f_m
     the trace just looks like a flat line. This plots magnitude only, over
     [f_min, wp_hz], and lets matplotlib autoscale the y-axis to the data so
     the actual ripple shape is visible.
+
+    Each curve is normalized to its own peak (0 dB = that curve's highest
+    point in the passband) by default. This plot exists purely to judge
+    ripple, and curves shown together here -- ideal / retuned target /
+    realised -- have no reason to share an absolute gain reference: pole
+    retuning and the output gain-compensation stage both deliberately shift
+    it (retuning doesn't preserve the ideal prototype's equiripple shape,
+    it trades it away for lower Q). Normalizing means a single -gpass_db
+    line is the correct ripple floor for every curve shown, instead of
+    being correct for only whichever one curve it was drawn relative to --
+    an absolute-dB version of this plot made the ideal curve look like it
+    was constantly failing spec when it was behaving perfectly, just
+    measured from a different peak. Absolute level is still shown in the
+    full Bode plot, where it's meaningful (e.g. confirming gain compensation
+    landed near the target).
     """
     f_min = f_min or max(0.1, wp_hz / 20000)
     f = np.linspace(f_min, wp_hz, n)
     w = 2 * np.pi * f
     _, H = freqs(b, a, w)
     mag = 20 * np.log10(np.maximum(np.abs(H), 1e-12))
+    if normalize:
+        mag = mag - mag.max()
 
     if ax is None:
         fig, ax = plt.subplots(figsize=(8, 4))
         ax.set_xlabel("Frequency [Hz]")
-        ax.set_ylabel("Magnitude [dB]")
+        ax.set_ylabel("Magnitude rel. to own peak [dB]" if normalize else "Magnitude [dB]")
         ax.grid(True, which='both', linestyle=':')
     else:
         fig = ax.figure
@@ -75,13 +93,12 @@ def plot_passband_detail(b, a, wp_hz, label="TF", color="tab:blue", ax=None, f_m
     return fig, ax
 
 
-def mark_passband_spec(ax, gpass_db, ref_db=0.0):
-    """Draw the ripple budget on a passband-detail plot. Pass the realised
-    curve's own peak level as ref_db (verify_response()'s ripple_peak_db)
-    so the line reflects the actual reference the ripple is judged against,
-    not an assumed 0 dB."""
-    ax.axhline(ref_db, color='grey', linestyle='-', linewidth=0.6)
-    ax.axhline(ref_db - gpass_db, color='red', linestyle=':', linewidth=1.2,
+def mark_passband_spec(ax, gpass_db):
+    """Draw the ripple budget on a passband-detail plot. Assumes curves were
+    plotted with plot_passband_detail's default normalize=True, so a single
+    -gpass_db line is the correct floor for every curve on the axes."""
+    ax.axhline(0, color='grey', linestyle='-', linewidth=0.6)
+    ax.axhline(-gpass_db, color='red', linestyle=':', linewidth=1.2,
                label=f'-{gpass_db:.2f} dB spec')
     ax.legend()
     return ax.figure, ax
