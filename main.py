@@ -3,14 +3,10 @@ import json
 from pathlib import Path
 
 import numpy as np
-from scipy.signal import freqs
 
 import cli
 import parameters as P
-from prototype_filter import generate_prototype, compute_min_order
-from sallen_key_tf import build_lpf_sections_from_poles, compute_cascade_tf, compute_ideal_cascade_tf
-from sk_realisation import pick_sk_parts_for_biquad, pick_sk_parts_for_first_order, pick_attenuator
-from stagger_tuning import retune_poles
+from engine import design_filter
 from monte_carlo import run_monte_carlo, summarize_monte_carlo
 from report import log, write_report
 from bom import print_bom
@@ -31,126 +27,47 @@ def save_filter_json(design_data, out_dir="filter designs", filename=None):
     return filepath
 
 
-def realise_sections(sections, r_lib, c_lib):
-    """Realise every ideal (biquad/first-order) section into real parts."""
-    realised, failures = [], []
-    for i, s in enumerate(sections, 1):
-        if s['kind'] == 'biquad':
-            r = pick_sk_parts_for_biquad(s['w0'], s['Q'], P.STATIC_M_RATIOS, P.STATIC_N_RATIOS,
-                                          r_lib, c_lib, stage_idx=i, stage_count=len(sections))
-        else:
-            r = pick_sk_parts_for_first_order(s['w0'], r_lib, c_lib,
-                                               stage_idx=i, stage_count=len(sections))
-        if r is None:
-            failures.append(i)
-        else:
-            realised.append(r)
-    if failures:
-        raise RuntimeError(f"Stage(s) {failures} could not be realised from the part "
-                            f"libraries at all -- try a larger E-series or a looser spec.")
-    return realised
-
-
-def verify_response(b, a, wp_hz, ws_hz, gpass_db, gstop_db):
-    """Check a realised cascade's actual passband ripple and stopband
-    attenuation against the spec, and report exactly where it fails.
-
-    Ripple is measured as the true peak-to-peak deviation across the whole
-    passband (its highest point minus its lowest), not deviation from an
-    arbitrary single reference frequency -- a filter can rise above its own
-    low-frequency level just as easily as it can dip below it, and both
-    count against the ripple budget. Attenuation is then measured relative
-    to that same passband peak, since that peak is the worst-case level a
-    signal in the passband can actually reach.
-    """
-    f_pass = np.linspace(1.0, wp_hz, 2000)
-    f_stop = np.geomspace(ws_hz, 20 * ws_hz, 400)
-    _, Hp = freqs(b, a, 2 * np.pi * f_pass)
-    _, Hs = freqs(b, a, 2 * np.pi * f_stop)
-    mag_p = 20 * np.log10(np.maximum(np.abs(Hp), 1e-30))
-    mag_s = 20 * np.log10(np.maximum(np.abs(Hs), 1e-30))
-
-    i_peak, i_dip = int(np.argmax(mag_p)), int(np.argmin(mag_p))
-    i_leak = int(np.argmax(mag_s))
-    ripple_achieved = mag_p[i_peak] - mag_p[i_dip]
-    atten_achieved = mag_p[i_peak] - mag_s[i_leak]
-
-    return {
-        'ripple_db_achieved': float(ripple_achieved),
-        'ripple_ok': bool(ripple_achieved <= gpass_db + 1e-6),
-        'ripple_peak_db': float(mag_p[i_peak]), 'ripple_peak_hz': float(f_pass[i_peak]),
-        'ripple_dip_db': float(mag_p[i_dip]), 'ripple_dip_hz': float(f_pass[i_dip]),
-        'atten_db_achieved': float(atten_achieved),
-        'atten_ok': bool(atten_achieved >= gstop_db - 1e-6),
-        'atten_worst_db': float(mag_s[i_leak]), 'atten_worst_hz': float(f_stop[i_leak]),
-    }
-
-
 def run(spec=None):
     if spec is None:
         spec = cli.get_spec_interactive()
 
     log(f"\n{spec.name} -- Type: {spec.filter_type}")
-    r_lib, c_lib = P.build_libraries(spec.e_series)
+    log("Designing (this searches the part library per stage, watch for progress bars)...")
 
-    b, a, N, Wn = generate_prototype(spec.filter_type, spec.wp_hz, spec.ws_hz,
-                                      spec.gpass_db, spec.gstop_db, order=spec.order_override)
+    d = design_filter(spec.filter_type, spec.wp_hz, spec.ws_hz, spec.gpass_db, spec.gstop_db,
+                       order_override=spec.order_override, e_series=spec.e_series,
+                       retune_enabled=spec.retune_enabled, retune_margin_db=spec.retune_margin_db,
+                       target_gain_db=spec.target_gain_db, show_progress=True)
+
     if spec.order_override:
-        n_min = compute_min_order(spec.filter_type, spec.wp_hz, spec.ws_hz, spec.gpass_db, spec.gstop_db)
-        log(f"Order: {N} (manual override -- automatic minimum was {n_min})  "
-            f"Prototype edge: {Wn / (2 * np.pi):.2f} Hz")
+        log(f"Order: {d['N']} (manual override -- automatic minimum was {d['n_min']})  "
+            f"Prototype edge: {d['Wn'] / (2 * np.pi):.2f} Hz")
     else:
-        log(f"Order: {N} (automatic minimum)  Prototype edge: {Wn / (2 * np.pi):.2f} Hz")
+        log(f"Order: {d['N']} (automatic minimum)  Prototype edge: {d['Wn'] / (2 * np.pi):.2f} Hz")
     log("Ideal transfer function:")
-    log(f"b = {b}")
-    log(f"a = {a}")
+    log(f"b = {d['ideal_b']}")
+    log(f"a = {d['ideal_a']}")
 
-    sections = build_lpf_sections_from_poles(b, a)
-    biquads = [s for s in sections if s['kind'] == 'biquad']
-    first_orders = [s for s in sections if s['kind'] == 'first']
+    biquads = [s for s in d['sections'] if s['kind'] == 'biquad']
+    first_orders = [s for s in d['sections'] if s['kind'] == 'first']
     log(f"\n{len(biquads)} biquad stage(s), {len(first_orders)} first-order stage(s).")
 
-    retune_info = None
-    if spec.retune_enabled and biquads:
-        f0_list = [s['w0'] / (2 * np.pi) for s in biquads]
-        Q_list = [s['Q'] for s in biquads]
-        fixed_w0_hz = (first_orders[0]['w0'] / (2 * np.pi)) if first_orders else None
+    if spec.retune_enabled and d['retune_info']:
         log("\nRetuning poles (stagger tuning)...")
-        f0_new, Q_new, retune_info = retune_poles(
-            f0_list, Q_list, spec.wp_hz, spec.ws_hz, spec.gpass_db, spec.gstop_db,
-            margin_db=spec.retune_margin_db, fixed_w0_hz=fixed_w0_hz)
-        log(f"  {retune_info['note']}")
-        if retune_info['feasible']:
-            for s, f0, Qv in zip(biquads, f0_new, Q_new):
-                s['w0'], s['Q'] = 2 * np.pi * f0, Qv
+        log(f"  {d['retune_info']['note']}")
 
-    retuned_b, retuned_a = compute_ideal_cascade_tf(sections)
-
-    realised = realise_sections(sections, r_lib, c_lib)
-
-    # --- gain compensation: each SK stage's K sets its Q *and* its DC
-    # gain, so the cascade always ends up with excess passband gain. Size
-    # an output attenuator to bring the overall gain to the target. ---
-    total_gain = 1.0
-    for s in realised:
-        if s['kind'] == 'biquad':
-            total_gain *= s['K_act']
-    total_gain_db = 20 * np.log10(total_gain)
-    log(f"\nRealised cascade passband gain before compensation: {total_gain_db:.2f} dB")
-    needed_atten_db = total_gain_db - spec.target_gain_db
-    if needed_atten_db > 1e-6:
-        att = pick_attenuator(needed_atten_db, r_lib)
-        realised.append(att)
+    log(f"\nRealised cascade passband gain before compensation: {d['total_gain_db']:.2f} dB")
+    if d['attenuator']:
+        att = d['attenuator']
         log(f"Added output attenuator: target {att['atten_db_tgt']:.2f} dB, "
             f"actual {att['atten_db_act']:.2f} dB")
-    elif needed_atten_db < -1e-6:
-        log(f"[!] Target gain is {-needed_atten_db:.2f} dB higher than the cascade "
+    elif d['needed_atten_db'] < -1e-6:
+        log(f"[!] Target gain is {-d['needed_atten_db']:.2f} dB higher than the cascade "
             f"reaches passively; you would need an extra amplifier stage for that.")
 
-    print_bom(realised)
+    print_bom(d['realised'])
 
-    real_b, real_a = compute_cascade_tf(realised)
-    check = verify_response(real_b, real_a, spec.wp_hz, spec.ws_hz, spec.gpass_db, spec.gstop_db)
+    check = d['check']
     log("\n===== Verification against spec =====")
     r_tag = "OK" if check['ripple_ok'] else "FAIL"
     log(f"  [{r_tag}] Passband ripple : {check['ripple_db_achieved']:.2f} dB peak-to-peak "
@@ -173,20 +90,20 @@ def run(spec=None):
     pending_plots = []  # (fig, filename) -- only written to disk if the user opts to save
 
     f_max_plot = max(spec.ws_hz * 3, P.F_MAX)
-    fig, axes = plot_bode(b, a, label="Ideal", color=P.COLORS['ideal'], f_max=f_max_plot)
-    if retune_info and retune_info.get('changed'):
-        plot_bode(retuned_b, retuned_a, label="Retuned target", color=P.COLORS['retuned'],
+    fig, axes = plot_bode(d['ideal_b'], d['ideal_a'], label="Ideal", color=P.COLORS['ideal'], f_max=f_max_plot)
+    if d['retune_info'] and d['retune_info'].get('changed'):
+        plot_bode(d['retuned_b'], d['retuned_a'], label="Retuned target", color=P.COLORS['retuned'],
                    axes=axes, f_max=f_max_plot)
-    plot_bode(real_b, real_a, label="Realised", color=P.COLORS['realised'], axes=axes, f_max=f_max_plot)
+    plot_bode(d['real_b'], d['real_a'], label="Realised", color=P.COLORS['realised'], axes=axes, f_max=f_max_plot)
     mark_spec(axes, spec.wp_hz, spec.ws_hz, spec.gpass_db, spec.gstop_db)
     show_fig(fig, show=spec.show_plots)
     pending_plots.append((fig, f"{base}_bode.png"))
 
-    pb_fig, pb_ax = plot_passband_detail(b, a, spec.wp_hz, label="Ideal", color=P.COLORS['ideal'])
-    if retune_info and retune_info.get('changed'):
-        plot_passband_detail(retuned_b, retuned_a, spec.wp_hz, label="Retuned target",
+    pb_fig, pb_ax = plot_passband_detail(d['ideal_b'], d['ideal_a'], spec.wp_hz, label="Ideal", color=P.COLORS['ideal'])
+    if d['retune_info'] and d['retune_info'].get('changed'):
+        plot_passband_detail(d['retuned_b'], d['retuned_a'], spec.wp_hz, label="Retuned target",
                               color=P.COLORS['retuned'], ax=pb_ax)
-    plot_passband_detail(real_b, real_a, spec.wp_hz, label="Realised", color=P.COLORS['realised'], ax=pb_ax)
+    plot_passband_detail(d['real_b'], d['real_a'], spec.wp_hz, label="Realised", color=P.COLORS['realised'], ax=pb_ax)
     mark_passband_spec(pb_ax, spec.gpass_db, ref_db=check['ripple_peak_db'])
     pb_ax.set_title("Passband detail (zoomed)")
     show_fig(pb_fig, show=spec.show_plots)
@@ -195,7 +112,7 @@ def run(spec=None):
     filter_data = {
         "name": spec.name,
         "type": spec.filter_type,
-        "order": int(N),
+        "order": int(d['N']),
         "order_override": spec.order_override,
         "wp_hz": spec.wp_hz,
         "ws_hz": spec.ws_hz,
@@ -203,15 +120,15 @@ def run(spec=None):
         "atten_db": spec.gstop_db,
         "target_gain_db": spec.target_gain_db,
         "e_series": spec.e_series,
-        "retune": retune_info,
+        "retune": d['retune_info'],
         "verification": check,
-        "sections": realised,
+        "sections": d['realised'],
         "monte_carlo": None,
     }
 
     if cli.ask_run_monte_carlo():
         mc = cli.get_monte_carlo_params_interactive()
-        result = run_monte_carlo(realised, spec.wp_hz, spec.ws_hz, spec.gpass_db, spec.gstop_db,
+        result = run_monte_carlo(d['realised'], spec.wp_hz, spec.ws_hz, spec.gpass_db, spec.gstop_db,
                                   mc.r_tol_pct, mc.c_tol_pct, mc.n_trials, distribution=mc.distribution)
         summarize_monte_carlo(result, spec.gpass_db, spec.gstop_db)
 
