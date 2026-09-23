@@ -57,11 +57,24 @@ def build_lpf_sections_from_poles(b, a):
             sections.append({'kind': 'first', 'w0': w0, 'Q': 0.5, 'num': [w0], 'den': [1.0, w0]})
     return sections
 
-def compute_ideal_cascade_tf(sections):
+def compute_ideal_cascade_tf(sections, dc_gain_db=None):
     """Combine a list of ideal target sections (each carrying w0 and, for
     biquads, Q -- as produced/retuned by build_lpf_sections_from_poles /
     stagger_tuning.retune_poles) into a single transfer function. Used to
-    preview a retuned target set before it's realised in real parts."""
+    preview a retuned target set before it's realised in real parts.
+
+    Each section here is built with exactly unity gain at DC (numerator
+    fixed at w0**2, matching the denominator's constant term), so the
+    cascade always sits at 0dB at DC regardless of order or Q -- which does
+    NOT generally match a true Chebyshev Type I prototype's own DC gain:
+    for even order it sits at the ripple floor (-Rp dB), only reaching 0dB
+    for odd order (a property of the Chebyshev polynomial's parity, not a
+    calibration choice). Left uncorrected, a retuned reconstruction of an
+    even-order design silently jumps to 0dB even with retuning disabled,
+    making the *reconstruction convention* look like part of retuning's
+    effect. Pass the true prototype's own DC gain (in dB) as dc_gain_db to
+    scale the whole cascade to match it instead of defaulting to 0dB.
+    """
     num_all, den_all = np.array([1.0]), np.array([1.0])
     for s in sections:
         if s['kind'] == 'biquad':
@@ -72,6 +85,10 @@ def compute_ideal_cascade_tf(sections):
             num, den = np.array([w0]), np.array([1.0, w0])
         num_all = np.polymul(num_all, num)
         den_all = np.polymul(den_all, den)
+    if dc_gain_db is not None:
+        current_dc = num_all[-1] / den_all[-1]  # == 1.0 by construction above, computed generally anyway
+        target_dc = 10 ** (dc_gain_db / 20.0)
+        num_all = num_all * (target_dc / current_dc)
     return num_all, den_all
 
 def compute_cascade_tf(stages):

@@ -11,7 +11,7 @@ from scipy.signal import freqs
 
 import parameters as P
 from prototype_filter import generate_prototype, compute_min_order
-from sallen_key_tf import build_lpf_sections_from_poles, compute_cascade_tf, compute_ideal_cascade_tf
+from sallen_key_tf import build_lpf_sections_from_poles, compute_cascade_tf, compute_ideal_cascade_tf, dc_gain
 from sk_realisation import pick_sk_parts_for_biquad, pick_sk_parts_for_first_order, pick_attenuator
 from stagger_tuning import retune_poles
 
@@ -101,7 +101,14 @@ def design_filter(filter_type, wp_hz, ws_hz, gpass_db, gstop_db, order_override=
             for s, f0v, Qv in zip(biquads, f0_new, Q_new):
                 s['w0'], s['Q'] = 2 * np.pi * f0v, Qv
 
-    retuned_b, retuned_a = compute_ideal_cascade_tf(sections)
+    # Reconstructing a cascade from (w0, Q) pairs builds each stage at
+    # exactly unity DC gain, so it always lands at 0dB regardless of order
+    # -- unlike the true prototype, whose own DC gain depends on order
+    # parity (see compute_ideal_cascade_tf's docstring). Match the true
+    # prototype's reference here so retuning's effect on shape isn't
+    # muddied by this reconstruction artifact.
+    ideal_dc_db = 20 * np.log10(abs(dc_gain(b, a)))
+    retuned_b, retuned_a = compute_ideal_cascade_tf(sections, dc_gain_db=ideal_dc_db)
 
     realised = realise_sections(sections, r_lib, c_lib, show_progress=show_progress)
 
