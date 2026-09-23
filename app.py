@@ -21,7 +21,13 @@ from prototype_filter import compute_min_order
 from engine import design_filter
 from monte_carlo import run_monte_carlo
 from bom import eng_unit
+# Matplotlib versions: used only to render the static PNGs the Save button
+# writes to disk (byte-compatible with what the CLI saves).
 from plotting import plot_bode, mark_spec, plot_passband_detail, mark_passband_spec, plot_monte_carlo
+# Plotly versions: used for the actual on-screen, interactive plots
+# (drag-zoom, pan, hover, scroll-zoom, double-click to reset).
+from interactive_plots import (interactive_bode, interactive_passband_detail,
+                                interactive_monte_carlo, PLOTLY_CONFIG)
 
 st.set_page_config(page_title="Filter Designer", layout="wide")
 
@@ -146,25 +152,39 @@ with col2:
 
 # --- Plot 1: response ---
 st.subheader("Response")
+st.caption("Drag to zoom into a region, double-click to reset, scroll to zoom, drag the "
+           "legend to hide/show a curve.")
 f_max_plot = max(ws_hz * 3, P.F_MAX)
+
+curves = [(d['ideal_b'], d['ideal_a'], "Ideal", P.COLORS['ideal'])]
+if d['retune_info'] and d['retune_info'].get('changed'):
+    curves.append((d['retuned_b'], d['retuned_a'], "Retuned target", P.COLORS['retuned']))
+curves.append((d['real_b'], d['real_a'], "Realised", P.COLORS['realised']))
+
+fig1_i = interactive_bode(curves, wp_hz, ws_hz, gpass_db, gstop_db, f_max=f_max_plot)
+st.plotly_chart(fig1_i, config=PLOTLY_CONFIG, width='stretch')
+
+with st.expander("Passband detail (zoomed) -- ripple failures are often invisible on the plot above"):
+    fig1b_i = interactive_passband_detail(curves, wp_hz, gpass_db)
+    st.plotly_chart(fig1b_i, config=PLOTLY_CONFIG, width='stretch')
+
+# Static matplotlib versions, built only for the Save button below (never
+# displayed) so saved PNGs stay byte-compatible with what the CLI writes.
 fig1, axes1 = plot_bode(d['ideal_b'], d['ideal_a'], label="Ideal", color=P.COLORS['ideal'], f_max=f_max_plot)
 if d['retune_info'] and d['retune_info'].get('changed'):
     plot_bode(d['retuned_b'], d['retuned_a'], label="Retuned target", color=P.COLORS['retuned'],
               axes=axes1, f_max=f_max_plot)
 plot_bode(d['real_b'], d['real_a'], label="Realised", color=P.COLORS['realised'], axes=axes1, f_max=f_max_plot)
 mark_spec(axes1, wp_hz, ws_hz, gpass_db, gstop_db)
-st.pyplot(fig1)
 plt.close(fig1)
 
-with st.expander("Passband detail (zoomed) -- ripple failures are often invisible on the plot above"):
-    fig1b, ax1b = plot_passband_detail(d['ideal_b'], d['ideal_a'], wp_hz, label="Ideal", color=P.COLORS['ideal'])
-    if d['retune_info'] and d['retune_info'].get('changed'):
-        plot_passband_detail(d['retuned_b'], d['retuned_a'], wp_hz, label="Retuned target",
-                              color=P.COLORS['retuned'], ax=ax1b)
-    plot_passband_detail(d['real_b'], d['real_a'], wp_hz, label="Realised", color=P.COLORS['realised'], ax=ax1b)
-    mark_passband_spec(ax1b, gpass_db)
-    st.pyplot(fig1b)
-    plt.close(fig1b)
+fig1b, ax1b = plot_passband_detail(d['ideal_b'], d['ideal_a'], wp_hz, label="Ideal", color=P.COLORS['ideal'])
+if d['retune_info'] and d['retune_info'].get('changed'):
+    plot_passband_detail(d['retuned_b'], d['retuned_a'], wp_hz, label="Retuned target",
+                          color=P.COLORS['retuned'], ax=ax1b)
+plot_passband_detail(d['real_b'], d['real_a'], wp_hz, label="Realised", color=P.COLORS['realised'], ax=ax1b)
+mark_passband_spec(ax1b, gpass_db)
+plt.close(fig1b)
 
 # --- BOM table ---
 st.subheader("Bill of Materials")
@@ -211,8 +231,10 @@ mcol3.metric("Median ripple / atten.", f"{rp[1]:.2f} dB / {ap[1]:.2f} dB")
 st.caption(f"Ripple 5th/50th/95th pct: {rp[0]:.2f} / {rp[1]:.2f} / {rp[2]:.2f} dB   "
            f"Attenuation 5th/50th/95th pct: {ap[0]:.2f} / {ap[1]:.2f} / {ap[2]:.2f} dB")
 
-fig2, ax2 = plot_monte_carlo(mc_result, wp_hz, ws_hz, gpass_db, gstop_db)
-st.pyplot(fig2)
+fig2_i = interactive_monte_carlo(mc_result, wp_hz, ws_hz, gpass_db, gstop_db)
+st.plotly_chart(fig2_i, config=PLOTLY_CONFIG, width='stretch')
+
+fig2, ax2 = plot_monte_carlo(mc_result, wp_hz, ws_hz, gpass_db, gstop_db)  # for Save, not displayed
 plt.close(fig2)
 
 # --- Save ---

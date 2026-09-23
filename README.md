@@ -42,7 +42,12 @@ Opens in your browser. Passband/stopband/ripple/attenuation are fields, build op
 (order override, E-series, retuning, target gain) are checkboxes/number inputs, resistor
 and capacitor tolerance are sliders, and the response plot, passband-ripple zoom, bill of
 materials, and Monte Carlo plot all recompute automatically as you change anything -- no
-need to re-run and re-answer a string of prompts to try a different number. A "Save this
+need to re-run and re-answer a string of prompts to try a different number. Plots are
+interactive (Plotly): drag to zoom into a region, scroll to zoom, double-click to reset,
+click a legend entry to hide/show a curve, hover for exact values -- the magnitude axis
+defaults to a sensible range around the spec rather than however low the response happens
+to reach at the plotted frequency ceiling, but the full range is always a zoom-out away.
+A "Save this
 design" button writes the same JSON/plot files `main.py` would, into `filter designs/`.
 
 ### CLI (scripted / repeatable runs)
