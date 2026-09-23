@@ -188,9 +188,16 @@ def get_spec_interactive() -> DesignSpec:
     retune_margin = last.get('retune_margin_db', P.DEFAULT_RETUNE_MARGIN_DB) if not retune else 0.0
     if retune:
         retune_margin = _ask_float(
-            "  Spec margin to allow while retuning, added to ripple and\n"
-            "  subtracted from stopband attenuation (dB)",
-            last.get('retune_margin_db', P.DEFAULT_RETUNE_MARGIN_DB), lambda v: v >= 0)
+            "  Spec margin for retuning (dB). Positive relaxes the ideal\n"
+            "  retuned target beyond the spec to buy lower Q (use this when\n"
+            "  Q itself is the problem). Negative tunes TIGHTER than the\n"
+            "  spec, reserving headroom for the E-series realisation error\n"
+            "  that always adds a bit more deviation on top -- use this once\n"
+            "  Q is already comfortable (e.g. after raising the order above)\n"
+            "  and the ideal target alone is landing right on the boundary\n"
+            "  with nothing left to give.",
+            last.get('retune_margin_db', P.DEFAULT_RETUNE_MARGIN_DB), lambda v: v > -gpass,
+            hint="would leave no ripple budget at all")
 
     show_plots = _ask_yesno("Show plots on screen (they are always saved to disk too)?",
                              last.get('show_plots', P.DEFAULT_SHOW_PLOTS))
