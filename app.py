@@ -224,7 +224,10 @@ st.subheader("Circuit diagram")
 st.caption("Drag to pan across stages, scroll to zoom, double-click to reset.")
 schem_prims, schem_bounds = build_cascade_schematic(d['realised'])
 schem_fig_i = render_plotly(schem_prims, schem_bounds)
-st.plotly_chart(schem_fig_i, config=PLOTLY_CONFIG, width='stretch')
+# Rendered at its own fixed pixel size (not stretched to the container) so
+# label legibility doesn't depend on how wide the page happens to be --
+# see render_plotly()'s docstring. Wider-than-the-page cascades pan/scroll.
+st.plotly_chart(schem_fig_i, config=PLOTLY_CONFIG, width='content')
 
 # --- Plot 2: Monte Carlo ---
 st.subheader("Monte Carlo (component tolerance)")

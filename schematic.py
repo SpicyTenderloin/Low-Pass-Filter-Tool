@@ -79,19 +79,19 @@ def _biquad_primitives(s, x_off, stage_no) -> Tuple[List[Primitive], float]:
     op_size = 0.8
     x_out = x_op + op_size  # op-amp output / stage output node
 
-    pin_off = op_size * 0.275  # +/- input pin height above/below the op-amp's centreline
+    pin_off = op_size * 0.275  # - input pin height below the op-amp's centreline
 
     p: List[Primitive] = []
     if stage_no == 1:
-        p.append(Text(x_off, y + 0.35, "Vin", ha="left", size=8))
+        p.append(Text(x_off, y + 0.45, "Vin", ha="left", size=8))
     p.append(Resistor(x_off, y, xA, y, f"R1={eng_unit(s['R1'], 'ohm')}"))
     p.append(Resistor(xA, y, xB, y, f"R2={eng_unit(s['R2'], 'ohm')}"))
-    p.append(Wire(xB, y, x_op, y + pin_off))  # into the + pin, at its actual height
+    p.append(Wire(xB, y, x_op, y))  # straight into the + pin, on the main signal rail
     p.append(Node(xA, y))
     p.append(Node(xB, y))
 
     p.append(OpAmp(x_op, y, size=op_size))
-    p.append(Text(x_op + 0.14, y + pin_off + 0.05, "+", size=9, ha="left", va="bottom"))
+    p.append(Text(x_op + 0.14, y + 0.08, "+", size=9, ha="left", va="bottom"))
     p.append(Text(x_op + 0.14, y - pin_off - 0.05, "-", size=9, ha="left", va="top"))
     p.append(Node(x_out, y))
 
@@ -271,11 +271,24 @@ def render_matplotlib(primitives, bounds, figsize=None):
     return fig
 
 
-def render_plotly(primitives, bounds):
+def render_plotly(primitives, bounds, px_per_unit=120):
     """Interactive counterpart of render_matplotlib(): same primitives,
     same geometry, drawn with Plotly shapes/annotations so a wide
     multi-stage schematic can be dragged/zoomed/panned instead of only
-    viewed at whatever size it was saved at."""
+    viewed at whatever size it was saved at.
+
+    The figure gets an explicit pixel width/height (px_per_unit times the
+    data span, matching what render_matplotlib effectively uses), rather
+    than being left to stretch to fill whatever container Streamlit gives
+    it. Component labels are sized in fixed points, not data units, so
+    stretching a fixed data range across a narrower-than-expected
+    container silently shrinks the effective pixels-per-unit and makes
+    labels overlap; a fixed intrinsic size keeps that ratio constant
+    regardless of the page's layout, with panning/scrolling (rather than
+    squashing) picking up the slack for a wide multi-stage cascade -- the
+    caller should display it at its own size (Streamlit's width="content"),
+    not stretched.
+    """
     import plotly.graph_objects as go
 
     xmin, xmax, ymin, ymax = bounds
@@ -362,9 +375,11 @@ def render_plotly(primitives, bounds):
                                                family="Arial Black" if pr.weight == "bold" else "Arial"),
                                      xanchor=xanchor, yanchor=yanchor))
 
+    width = max(700, int((xmax - xmin) * px_per_unit))
+    height = max(320, int((ymax - ymin) * px_per_unit))
     fig.update_layout(shapes=shapes, annotations=annotations,
                        xaxis=dict(range=[xmin, xmax], visible=False),
                        yaxis=dict(range=[ymin, ymax], visible=False, scaleanchor="x", scaleratio=1),
-                       height=420, margin=dict(l=10, r=10, t=10, b=10),
+                       width=width, height=height, margin=dict(l=10, r=10, t=10, b=10),
                        plot_bgcolor="white", dragmode="pan")
     return fig
