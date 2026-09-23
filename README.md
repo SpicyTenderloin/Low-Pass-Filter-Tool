@@ -17,6 +17,8 @@ Given a passband/stopband spec, it:
 - verifies the realised design against the original spec and reports exactly which
   criteria fail, and where in frequency
 - runs a Monte Carlo component-tolerance analysis and reports build yield
+- draws the actual schematic (every resistor, capacitor, op-amp, and ground connection)
+  for the realised cascade
 
 Two front ends share the same engine (`engine.py`) and produce the same JSON schema:
 an interactive Streamlit app for exploring a spec live, and a CLI for scripted/repeatable
@@ -41,7 +43,7 @@ streamlit run app.py
 Opens in your browser. Passband/stopband/ripple/attenuation are fields, build options
 (order override, E-series, retuning, target gain) are checkboxes/number inputs, resistor
 and capacitor tolerance are sliders, and the response plot, passband-ripple zoom, bill of
-materials, and Monte Carlo plot all recompute automatically as you change anything -- no
+materials, circuit diagram, and Monte Carlo plot all recompute automatically as you change anything -- no
 need to re-run and re-answer a string of prompts to try a different number. Plots are
 interactive (Plotly): drag to zoom into a region, scroll to zoom, double-click to reset,
 click a legend entry to hide/show a curve, hover for exact values -- the magnitude axis
@@ -63,8 +65,9 @@ retuning, plot display). Press Enter on any prompt to accept the default shown i
 `[brackets]`.
 
 At the end it asks once whether to save; if you do, it writes to `filter designs/`: a
-`.json` (full design + verification result), `_bode.png` and `_passband.png` (zoomed
-ripple detail) plots, and a shared `filter_design_report.txt` log.
+`.json` (full design + verification result), `_bode.png`, `_passband.png` (zoomed
+ripple detail), and `_schematic.png` (the actual circuit) plots, and a shared
+`filter_design_report.txt` log.
 
 ### Revisit a saved design
 
@@ -147,7 +150,9 @@ comfortable. Check it before trusting a tight ripple spec.
 | `sk_realisation.py` | E-series part search for each stage |
 | `stagger_tuning.py` | pole retuning optimiser |
 | `monte_carlo.py` | component-tolerance Monte Carlo analysis |
+| `schematic.py` | circuit diagram: geometry computed once, rendered as both a static (matplotlib) and interactive (Plotly) figure |
 | `plotting.py` / `bom.py` / `report.py` | plotting, bill of materials, logging |
+| `interactive_plots.py` | Plotly versions of the response/Monte Carlo plots, for the app |
 | `load_filter.py` | reload / re-plot a saved design |
 
 ## Notes / limitations

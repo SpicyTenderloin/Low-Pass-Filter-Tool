@@ -28,6 +28,7 @@ from plotting import plot_bode, mark_spec, plot_passband_detail, mark_passband_s
 # (drag-zoom, pan, hover, scroll-zoom, double-click to reset).
 from interactive_plots import (interactive_bode, interactive_passband_detail,
                                 interactive_monte_carlo, PLOTLY_CONFIG)
+from schematic import build_cascade_schematic, render_matplotlib, render_plotly
 
 st.set_page_config(page_title="Filter Designer", layout="wide")
 
@@ -218,6 +219,13 @@ for i, s in enumerate(d['realised'], 1):
         })
 st.dataframe(rows, width='stretch', hide_index=True)
 
+# --- Circuit diagram ---
+st.subheader("Circuit diagram")
+st.caption("Drag to pan across stages, scroll to zoom, double-click to reset.")
+schem_prims, schem_bounds = build_cascade_schematic(d['realised'])
+schem_fig_i = render_plotly(schem_prims, schem_bounds)
+st.plotly_chart(schem_fig_i, config=PLOTLY_CONFIG, width='stretch')
+
 # --- Plot 2: Monte Carlo ---
 st.subheader("Monte Carlo (component tolerance)")
 mc_result = cached_monte_carlo(d['realised'], wp_hz, ws_hz, gpass_db, gstop_db,
@@ -248,6 +256,9 @@ if st.button("Save this design (JSON + plots) to \"filter designs/\""):
     fig1.savefig(out_dir / f"{out_name}_bode.png", dpi=150)
     fig1b.savefig(out_dir / f"{out_name}_passband.png", dpi=150)
     fig2.savefig(out_dir / f"{out_name}_montecarlo.png", dpi=150)
+    schem_fig = render_matplotlib(schem_prims, schem_bounds)
+    schem_fig.savefig(out_dir / f"{out_name}_schematic.png", dpi=150)
+    plt.close(schem_fig)
     rp_list = rp.tolist() if hasattr(rp, 'tolist') else list(rp)
     ap_list = ap.tolist() if hasattr(ap, 'tolist') else list(ap)
     filter_data = {
@@ -267,4 +278,4 @@ if st.button("Save this design (JSON + plots) to \"filter designs/\""):
     with open(out_dir / f"{out_name}.json", "w") as f:
         json.dump(filter_data, f, indent=4)
     st.success(f"Saved to {out_dir / f'{out_name}.json'} "
-                f"(plus _bode.png, _passband.png, and _montecarlo.png)")
+                f"(plus _bode.png, _passband.png, _montecarlo.png, and _schematic.png)")

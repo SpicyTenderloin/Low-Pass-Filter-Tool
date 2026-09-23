@@ -12,6 +12,7 @@ from report import log, write_report
 from bom import print_bom
 from plotting import (plot_bode, mark_spec, plot_passband_detail, mark_passband_spec,
                        plot_monte_carlo, show_fig, save_fig, block_until_closed)
+from schematic import build_cascade_schematic, render_matplotlib
 
 
 def save_filter_json(design_data, out_dir="filter designs", filename=None):
@@ -108,6 +109,11 @@ def run(spec=None):
     pb_ax.set_title("Passband detail (zoomed)")
     show_fig(pb_fig, show=spec.show_plots)
     pending_plots.append((pb_fig, f"{base}_passband.png"))
+
+    schem_prims, schem_bounds = build_cascade_schematic(d['realised'])
+    schem_fig = render_matplotlib(schem_prims, schem_bounds)
+    show_fig(schem_fig, show=spec.show_plots)
+    pending_plots.append((schem_fig, f"{base}_schematic.png"))
 
     filter_data = {
         "name": spec.name,
