@@ -27,7 +27,7 @@ from plotting import plot_bode, mark_spec, plot_passband_detail, mark_passband_s
 # Plotly versions: used for the actual on-screen, interactive plots
 # (drag-zoom, pan, hover, scroll-zoom, double-click to reset).
 from interactive_plots import (interactive_bode, interactive_passband_detail,
-                                interactive_monte_carlo, PLOTLY_CONFIG)
+                                interactive_monte_carlo, PLOTLY_CONFIG, SCHEMATIC_CONFIG)
 from schematic import build_cascade_schematic, render_matplotlib, render_plotly
 
 st.set_page_config(page_title="Filter Designer", layout="wide")
@@ -221,13 +221,14 @@ st.dataframe(rows, width='stretch', hide_index=True)
 
 # --- Circuit diagram ---
 st.subheader("Circuit diagram")
-st.caption("Drag to pan across stages, scroll to zoom, double-click to reset.")
+st.caption("Drag to pan across stages -- rendered at a fixed, always-legible size, no zoom needed.")
 schem_prims, schem_bounds = build_cascade_schematic(d['realised'])
 schem_fig_i = render_plotly(schem_prims, schem_bounds)
-# Rendered at its own fixed pixel size (not stretched to the container) so
-# label legibility doesn't depend on how wide the page happens to be --
-# see render_plotly()'s docstring. Wider-than-the-page cascades pan/scroll.
-st.plotly_chart(schem_fig_i, config=PLOTLY_CONFIG, width='content')
+# Rendered at its own fixed pixel size (not stretched to the container, and
+# not auto-resized by Plotly's own responsive behaviour either -- see
+# SCHEMATIC_CONFIG) so label legibility never depends on the page's layout.
+# Wider-than-the-page cascades pan/scroll instead of shrinking.
+st.plotly_chart(schem_fig_i, config=SCHEMATIC_CONFIG, width='content')
 
 # --- Plot 2: Monte Carlo ---
 st.subheader("Monte Carlo (component tolerance)")

@@ -17,6 +17,15 @@ import parameters as P
 
 PLOTLY_CONFIG = {"scrollZoom": True, "displaylogo": False}
 
+# For the schematic specifically: Plotly.js defaults to `responsive: true`,
+# which auto-resizes a chart to fill whatever container it's placed in --
+# that silently overrides the explicit width/height render_plotly()
+# computes from the data (so label spacing would still depend on the
+# page's layout despite that fix). responsive: False makes it render at
+# its own intrinsic size and stay there, so panning/scrolling is enough to
+# see the rest of a wide cascade without ever needing to zoom in first.
+SCHEMATIC_CONFIG = {**PLOTLY_CONFIG, "responsive": False}
+
 # parameters.COLORS uses matplotlib's 'tab:' colour names (shared with the
 # CLI's plots), which Plotly doesn't recognise -- translate the ones this
 # project actually uses; anything already CSS-valid passes through as-is.
